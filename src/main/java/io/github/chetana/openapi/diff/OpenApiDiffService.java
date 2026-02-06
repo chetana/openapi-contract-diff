@@ -23,15 +23,21 @@ public class OpenApiDiffService {
 
     public record DiffResult(String consoleReport, String metadataReport, boolean isDifferent) {}
 
-    public DiffResult compare(String pmSpecContent, String generatedSpecUrl) throws Exception {
+    public DiffResult compare(String pmSpecContent, String generatedSpecInput) throws Exception {
         ParseOptions options = new ParseOptions();
         options.setResolve(true);
 
         OpenAPI pmOpenAPI = new OpenAPIV3Parser().readContents(pmSpecContent, null, options).getOpenAPI();
-        OpenAPI genOpenAPI = new OpenAPIV3Parser().read(generatedSpecUrl, null, options);
+        
+        OpenAPI genOpenAPI;
+        if (generatedSpecInput.trim().startsWith("http")) {
+            genOpenAPI = new OpenAPIV3Parser().read(generatedSpecInput.trim(), null, options);
+        } else {
+            genOpenAPI = new OpenAPIV3Parser().readContents(generatedSpecInput, null, options).getOpenAPI();
+        }
 
         if (pmOpenAPI == null || genOpenAPI == null) {
-            throw new IllegalArgumentException("Could not parse one of the OpenAPI specifications.");
+            throw new IllegalArgumentException("Could not parse one of the OpenAPI specifications. Ensure the content is valid JSON/YAML or the URL is accessible.");
         }
 
         normalizeAllDescriptions(pmOpenAPI);

@@ -19,8 +19,8 @@ public class MainView extends VerticalLayout {
 
     private final OpenApiDiffService diffService;
 
-    private final TextArea pmContractArea = new TextArea("Contrat OpenAPI de Référence (YAML)");
-    private final TextField swaggerUrlField = new TextField("URL du Swagger généré");
+    private final TextArea pmContractArea = new TextArea("Contrat OpenAPI de Référence (Design-First)");
+    private final TextArea generatedContractArea = new TextArea("Contrat OpenAPI Généré (URL ou JSON/YAML brut)");
     private final Button compareButton = new Button("Comparer les contrats");
     
     private final VerticalLayout resultsLayout = new VerticalLayout();
@@ -43,19 +43,21 @@ public class MainView extends VerticalLayout {
         H1 title = new H1("OpenAPI Contract Diff");
         title.getStyle().set("margin-top", "0");
 
-        pmContractArea.setPlaceholder("Collez le contenu YAML ici...");
+        pmContractArea.setPlaceholder("Collez le YAML du contrat de référence ici...");
         pmContractArea.setHeight("300px");
         pmContractArea.setWidthFull();
 
-        swaggerUrlField.setPlaceholder("Ex: http://localhost:8080/v3/api-docs");
-        swaggerUrlField.setWidthFull();
+        generatedContractArea.setPlaceholder("Collez le JSON/YAML généré ici, ou l'URL (ex: https://api.prod.com/v3/api-docs)");
+        generatedContractArea.setHeight("300px");
+        generatedContractArea.setWidthFull();
 
-        compareButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+        compareButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY, ButtonVariant.LUMO_LARGE);
+        compareButton.setWidthFull();
         
-        HorizontalLayout inputsLayout = new HorizontalLayout(pmContractArea, new VerticalLayout(swaggerUrlField, compareButton));
-        inputsLayout.setAlignItems(Alignment.END);
+        HorizontalLayout inputsLayout = new HorizontalLayout(pmContractArea, generatedContractArea);
         inputsLayout.setWidthFull();
         inputsLayout.setFlexGrow(1, pmContractArea);
+        inputsLayout.setFlexGrow(1, generatedContractArea);
 
         resultsLayout.setVisible(false);
         resultsLayout.setPadding(false);
@@ -73,27 +75,26 @@ public class MainView extends VerticalLayout {
 
         resultsLayout.add(statusLabel, consoleDetails, metadataDetails);
 
-        add(title, pmContractArea, swaggerUrlField, compareButton, resultsLayout);
+        add(title, inputsLayout, compareButton, resultsLayout);
     }
 
     private void setupClickListeners() {
         compareButton.addClickListener(event -> {
             String pmContent = pmContractArea.getValue();
-            String url = swaggerUrlField.getValue();
+            String genInput = generatedContractArea.getValue();
 
-            if (pmContent == null || pmContent.isBlank() || url == null || url.isBlank()) {
-                Notification.show("Veuillez remplir les deux champs.", 3000, Notification.Position.MIDDLE)
+            if (pmContent == null || pmContent.isBlank() || genInput == null || genInput.isBlank()) {
+                Notification.show("Veuillez remplir les deux champs (Contrat de référence et Contrat généré).", 3000, Notification.Position.MIDDLE)
                         .addThemeVariants(NotificationVariant.LUMO_ERROR);
                 return;
             }
 
             try {
-                OpenApiDiffService.DiffResult result = diffService.compare(pmContent, url);
+                OpenApiDiffService.DiffResult result = diffService.compare(pmContent, genInput);
                 displayResults(result);
             } catch (Exception e) {
                 Notification.show("Erreur lors de la comparaison : " + e.getMessage(), 5000, Notification.Position.MIDDLE)
                         .addThemeVariants(NotificationVariant.LUMO_ERROR);
-                e.printStackTrace();
             }
         });
     }
