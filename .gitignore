@@ -56,6 +56,16 @@ local.properties
 .target
 .texlipse
 .springBeans
+# Vaadin
+frontend/generated/
+node_modules/
+package.json
+package-lock.json
+vite.config.ts
+vite.generated.ts
+types.d.ts
+tsconfig.json
+
 # General
 .DS_Store
 .AppleDouble
@@ -68,3 +78,4 @@ xcuserdata/
 build/
 DerivedData/
 yarn.lock
+frontend/index.html
