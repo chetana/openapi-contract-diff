@@ -102,7 +102,11 @@ public class MainView extends VerticalLayout {
     private void displayResults(OpenApiDiffService.DiffResult result) {
         resultsLayout.setVisible(true);
         
-        if (result.isDifferent()) {
+        if (!result.missingOperationIds().isEmpty()) {
+            String missing = String.join(", ", result.missingOperationIds());
+            statusLabel.setText("❌ Le contrat avec l'operation ID " + missing + " n'a pas été trouvé");
+            statusLabel.getStyle().set("color", "var(--lumo-error-color)");
+        } else if (result.isDifferent()) {
             statusLabel.setText("❌ Des différences ont été détectées.");
             statusLabel.getStyle().set("color", "var(--lumo-error-color)");
         } else {

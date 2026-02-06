@@ -16,12 +16,14 @@ import org.springframework.stereotype.Service;
 import java.io.ByteArrayOutputStream;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 @Service
 public class OpenApiDiffService {
 
-    public record DiffResult(String consoleReport, String metadataReport, boolean isDifferent) {}
+    public record DiffResult(String consoleReport, String metadataReport, boolean isDifferent, List<String> missingOperationIds) {}
 
     public DiffResult compare(String pmSpecContent, String generatedSpecInput) throws Exception {
         ParseOptions options = new ParseOptions();
@@ -43,7 +45,8 @@ public class OpenApiDiffService {
         normalizeAllDescriptions(pmOpenAPI);
         normalizeAllDescriptions(genOpenAPI);
 
-        OpenAPI filteredGenOpenAPI = filterGeneratedOpenApi(pmOpenAPI, genOpenAPI);
+        List<String> missingOperationIds = new ArrayList<>();
+        OpenAPI filteredGenOpenAPI = filterGeneratedOpenApi(pmOpenAPI, genOpenAPI, missingOperationIds);
 
         String pmJson = Json.pretty(pmOpenAPI);
         String genJson = Json.pretty(filteredGenOpenAPI);
@@ -53,10 +56,10 @@ public class OpenApiDiffService {
         String consoleReport = renderToString(new ConsoleRender(), diff);
         String metadataReport = extractMetadataChanges(diff);
 
-        return new DiffResult(consoleReport, metadataReport, diff.isDifferent());
+        return new DiffResult(consoleReport, metadataReport, diff.isDifferent(), missingOperationIds);
     }
 
-    private OpenAPI filterGeneratedOpenApi(OpenAPI pmOpenAPI, OpenAPI genOpenAPI) {
+    private OpenAPI filterGeneratedOpenApi(OpenAPI pmOpenAPI, OpenAPI genOpenAPI, List<String> missingOperationIds) {
         OpenAPI filteredGenOpenAPI = new OpenAPI();
         filteredGenOpenAPI.setOpenapi(genOpenAPI.getOpenapi());
         filteredGenOpenAPI.setInfo(genOpenAPI.getInfo());
@@ -70,6 +73,8 @@ public class OpenApiDiffService {
                 Operation foundGenOp = findOperation(genOpenAPI, path, method, opId);
                 if (foundGenOp != null) {
                     setOperationByMethod(genPathItem, method, foundGenOp);
+                } else {
+                    missingOperationIds.add(opId != null ? opId : method + " " + path);
                 }
             });
             if (!genPathItem.readOperationsMap().isEmpty()) {
