@@ -23,7 +23,9 @@ import java.util.Map;
 @Service
 public class OpenApiDiffService {
 
-    public record DiffResult(String consoleReport, String metadataReport, boolean isDifferent, List<String> missingOperationIds) {}
+    public record MetadataChange(String path, String method, String field, String designFirstValue, String generatedValue) {}
+    public record StructureChange(String method, String path, String changeType, List<String> details, boolean isBreaking) {}
+    public record DiffResult(String consoleReport, List<MetadataChange> metadataChanges, List<StructureChange> structureChanges, boolean isDifferent, List<String> missingOperationIds) {}
 
     public DiffResult compare(String pmSpecContent, String generatedSpecInput) throws Exception {
         ParseOptions options = new ParseOptions();
@@ -54,9 +56,10 @@ public class OpenApiDiffService {
         ChangedOpenApi diff = OpenApiCompare.fromContents(pmJson, genJson);
 
         String consoleReport = renderToString(new ConsoleRender(), diff);
-        String metadataReport = extractMetadataChanges(diff);
+        List<MetadataChange> metadataChanges = extractMetadataChanges(diff);
+        List<StructureChange> structureChanges = extractStructureChanges(diff);
 
-        return new DiffResult(consoleReport, metadataReport, diff.isDifferent(), missingOperationIds);
+        return new DiffResult(consoleReport, metadataChanges, structureChanges, diff.isDifferent(), missingOperationIds);
     }
 
     private OpenAPI filterGeneratedOpenApi(OpenAPI pmOpenAPI, OpenAPI genOpenAPI, List<String> missingOperationIds) {
@@ -85,41 +88,76 @@ public class OpenApiDiffService {
         return filteredGenOpenAPI;
     }
 
-    private String extractMetadataChanges(ChangedOpenApi diff) {
-        StringBuilder metadataChanges = new StringBuilder();
-        diff.getChangedOperations().forEach(op -> {
-            boolean summaryChanged = op.getSummary() != null && op.getSummary().isDifferent();
-            boolean descChanged = op.getDescription() != null && op.getDescription().isDifferent();
+    private List<StructureChange> extractStructureChanges(ChangedOpenApi diff) {
+        List<StructureChange> changes = new ArrayList<>();
 
-            if (summaryChanged || descChanged) {
-                metadataChanges.append("#### ").append(op.getHttpMethod()).append(" `").append(op.getPathUrl()).append("`\n");
-                if (summaryChanged) {
-                    metadataChanges.append("- **Summary**:\n");
-                    metadataChanges.append("    - **PM** : `").append(op.getSummary().getLeft()).append("`\n");
-                    metadataChanges.append("    - **Gen**: `").append(op.getSummary().getRight()).append("`\n");
-                }
-                if (descChanged) {
-                    metadataChanges.append("- **Description**:\n");
-                    metadataChanges.append("    - **PM** :\n> ").append(op.getDescription().getLeft()).append("\n");
-                    metadataChanges.append("    - **Gen**:\n> ").append(op.getDescription().getRight()).append("\n");
-                }
-                metadataChanges.append("\n");
+        // New Endpoints
+        diff.getNewEndpoints().forEach(endpoint -> {
+            changes.add(new StructureChange(endpoint.getMethod().toString(), endpoint.getPathUrl(), "NEW", 
+                List.of("Endpoint added in generated contract"), false));
+        });
+
+        // Missing Endpoints
+        diff.getMissingEndpoints().forEach(endpoint -> {
+            changes.add(new StructureChange(endpoint.getMethod().toString(), endpoint.getPathUrl(), "REMOVED", 
+                List.of("Endpoint missing from generated contract"), true));
+        });
+
+        // Changed Operations
+        diff.getChangedOperations().forEach(op -> {
+            List<String> details = new ArrayList<>();
+            
+            if (op.getParameters() != null && op.getParameters().isDifferent()) {
+                op.getParameters().getIncreased().forEach(p -> details.add("Added parameter: " + p.getName()));
+                op.getParameters().getMissing().forEach(p -> details.add("Removed parameter: " + p.getName()));
+                op.getParameters().getChanged().forEach(p -> details.add("Changed parameter: " + p.getName()));
+            }
+
+            if (op.getApiResponses() != null && op.getApiResponses().isDifferent()) {
+                op.getApiResponses().getIncreased().forEach((code, resp) -> details.add("Added response: " + code));
+                op.getApiResponses().getMissing().forEach((code, resp) -> details.add("Removed response: " + code));
+                op.getApiResponses().getChanged().forEach((code, resp) -> details.add("Changed response: " + code));
+            }
+
+            if (!details.isEmpty() || !op.isCompatible()) {
+                changes.add(new StructureChange(op.getHttpMethod().toString(), op.getPathUrl(), "CHANGED", 
+                    details.isEmpty() ? List.of("Structural changes detected") : details, !op.isCompatible()));
+            }
+        });
+
+        return changes;
+    }
+
+    private List<MetadataChange> extractMetadataChanges(ChangedOpenApi diff) {
+        List<MetadataChange> changes = new ArrayList<>();
+        diff.getChangedOperations().forEach(op -> {
+            String path = op.getPathUrl();
+            String method = op.getHttpMethod().toString();
+
+            if (op.getSummary() != null && op.getSummary().isDifferent()) {
+                changes.add(new MetadataChange(path, method, "Summary", 
+                        String.valueOf(op.getSummary().getLeft()), 
+                        String.valueOf(op.getSummary().getRight())));
+            }
+
+            if (op.getDescription() != null && op.getDescription().isDifferent()) {
+                changes.add(new MetadataChange(path, method, "Description", 
+                        String.valueOf(op.getDescription().getLeft()), 
+                        String.valueOf(op.getDescription().getRight())));
             }
 
             // Parameters
             if (op.getParameters() != null) {
                 op.getParameters().getChanged().forEach(param -> {
                     if (param.getDescription() != null && param.getDescription().isDifferent()) {
-                        metadataChanges.append("#### ").append(op.getHttpMethod()).append(" `").append(op.getPathUrl())
-                                .append("` (Parameter: `").append(param.getName()).append("`)\n");
-                        metadataChanges.append("- **Description**:\n");
-                        metadataChanges.append("    - **PM** : ").append(param.getDescription().getLeft()).append("\n");
-                        metadataChanges.append("    - **Gen**: ").append(param.getDescription().getRight()).append("\n\n");
+                        changes.add(new MetadataChange(path, method, "Param: " + param.getName(), 
+                                String.valueOf(param.getDescription().getLeft()), 
+                                String.valueOf(param.getDescription().getRight())));
                     }
                 });
             }
         });
-        return metadataChanges.toString();
+        return changes;
     }
 
     private void normalizeAllDescriptions(OpenAPI openAPI) {
