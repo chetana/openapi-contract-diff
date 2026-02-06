@@ -8,7 +8,7 @@ import io.swagger.v3.oas.models.media.Schema;
 import io.swagger.v3.parser.OpenAPIV3Parser;
 import io.swagger.v3.parser.core.models.ParseOptions;
 import org.openapitools.openapidiff.core.OpenApiCompare;
-import org.openapitools.openapidiff.core.model.ChangedOpenApi;
+import org.openapitools.openapidiff.core.model.*;
 import org.openapitools.openapidiff.core.output.ConsoleRender;
 import org.openapitools.openapidiff.core.output.Render;
 import org.springframework.stereotype.Service;
@@ -116,7 +116,17 @@ public class OpenApiDiffService {
             if (op.getApiResponses() != null && op.getApiResponses().isDifferent()) {
                 op.getApiResponses().getIncreased().forEach((code, resp) -> details.add("Added response: " + code));
                 op.getApiResponses().getMissing().forEach((code, resp) -> details.add("Removed response: " + code));
-                op.getApiResponses().getChanged().forEach((code, resp) -> details.add("Changed response: " + code));
+                op.getApiResponses().getChanged().forEach((code, resp) -> {
+                    details.add("Changed response: " + code);
+                    if (resp.getContent() != null && resp.getContent().isDifferent()) {
+                        resp.getContent().getChanged().forEach((mediaType, change) -> {
+                            details.add("  Media Type: " + mediaType);
+                            if (change.getSchema() != null && change.getSchema().isDifferent()) {
+                                extractSchemaDetails(change.getSchema(), "    ", details);
+                            }
+                        });
+                    }
+                });
             }
 
             if (!details.isEmpty() || !op.isCompatible()) {
@@ -126,6 +136,25 @@ public class OpenApiDiffService {
         });
 
         return changes;
+    }
+
+    private void extractSchemaDetails(ChangedSchema schema, String indent, List<String> details) {
+        if (schema.getMissingProperties() != null) {
+            schema.getMissingProperties().forEach((name, s) -> details.add(indent + "Missing property: " + name));
+        }
+        if (schema.getIncreasedProperties() != null) {
+            schema.getIncreasedProperties().forEach((name, s) -> details.add(indent + "New property: " + name));
+        }
+        if (schema.getChangedProperties() != null) {
+            schema.getChangedProperties().forEach((name, s) -> {
+                details.add(indent + "Changed property: " + name);
+                extractSchemaDetails(s, indent + "  ", details);
+            });
+        }
+        if (schema.getItems() != null && schema.getItems().isDifferent()) {
+            details.add(indent + "Items changed:");
+            extractSchemaDetails(schema.getItems(), indent + "  ", details);
+        }
     }
 
     private List<MetadataChange> extractMetadataChanges(ChangedOpenApi diff) {
@@ -156,8 +185,43 @@ public class OpenApiDiffService {
                     }
                 });
             }
+
+            // Responses Descriptions
+            if (op.getApiResponses() != null) {
+                op.getApiResponses().getChanged().forEach((code, resp) -> {
+                    if (resp.getDescription() != null && resp.getDescription().isDifferent()) {
+                        changes.add(new MetadataChange(path, method, "Response " + code + " Description",
+                                String.valueOf(resp.getDescription().getLeft()),
+                                String.valueOf(resp.getDescription().getRight())));
+                    }
+                    // Deep schema metadata
+                    if (resp.getContent() != null) {
+                        resp.getContent().getChanged().forEach((mediaType, content) -> {
+                            if (content.getSchema() != null) {
+                                extractSchemaMetadataChanges(path, method, "Response " + code + " Schema", content.getSchema(), changes);
+                            }
+                        });
+                    }
+                });
+            }
         });
         return changes;
+    }
+
+    private void extractSchemaMetadataChanges(String path, String method, String prefix, ChangedSchema schema, List<MetadataChange> changes) {
+        if (schema.getDescription() != null && schema.getDescription().isDifferent()) {
+            changes.add(new MetadataChange(path, method, prefix + " Description",
+                    String.valueOf(schema.getDescription().getLeft()),
+                    String.valueOf(schema.getDescription().getRight())));
+        }
+        if (schema.getChangedProperties() != null) {
+            schema.getChangedProperties().forEach((name, prop) -> {
+                extractSchemaMetadataChanges(path, method, prefix + " -> " + name, prop, changes);
+            });
+        }
+        if (schema.getItems() != null && schema.getItems().isDifferent()) {
+            extractSchemaMetadataChanges(path, method, prefix + " (items)", schema.getItems(), changes);
+        }
     }
 
     private void normalizeAllDescriptions(OpenAPI openAPI) {
