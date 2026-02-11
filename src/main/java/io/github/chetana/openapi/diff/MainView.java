@@ -3,6 +3,7 @@ package io.github.chetana.openapi.diff;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.details.Details;
+import com.vaadin.flow.component.html.Anchor;
 import com.vaadin.flow.component.html.H1;
 import com.vaadin.flow.component.html.Pre;
 import com.vaadin.flow.component.html.Span;
@@ -11,7 +12,7 @@ import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.textfield.TextArea;
-import com.vaadin.flow.component.textfield.TextField;
+import com.vaadin.flow.server.StreamResource;
 import com.vaadin.flow.router.Route;
 
 @Route("")
@@ -22,12 +23,14 @@ public class MainView extends VerticalLayout {
     private final TextArea pmContractArea = new TextArea("Contrat OpenAPI de Référence (Design-First)");
     private final TextArea generatedContractArea = new TextArea("Contrat OpenAPI Généré (URL ou JSON/YAML brut)");
     private final Button compareButton = new Button("Comparer les contrats");
+    private final Button exportCsvButton = new Button("Exporter en CSV");
+    private final Anchor exportAnchor = new Anchor();
     
     private final VerticalLayout resultsLayout = new VerticalLayout();
     private final VerticalLayout structureChangesLayout = new VerticalLayout();
     private final VerticalLayout metadataChangesLayout = new VerticalLayout();
     private final Span statusLabel = new Span();
-
+    
     public MainView(OpenApiDiffService diffService) {
         this.diffService = diffService;
 
@@ -64,6 +67,16 @@ public class MainView extends VerticalLayout {
         
         statusLabel.getStyle().set("font-weight", "bold");
         statusLabel.getStyle().set("font-size", "1.2em");
+        statusLabel.getStyle().set("flex-grow", "1");
+
+        exportCsvButton.addThemeVariants(ButtonVariant.LUMO_SUCCESS);
+        exportAnchor.add(exportCsvButton);
+        exportAnchor.getElement().setAttribute("download", true);
+        exportAnchor.setVisible(false);
+
+        HorizontalLayout headerLayout = new HorizontalLayout(statusLabel, exportAnchor);
+        headerLayout.setWidthFull();
+        headerLayout.setAlignItems(Alignment.CENTER);
 
         Details metadataDetails = new Details("Changements de Métadonnées (Summary/Description)", metadataChangesLayout);
         metadataDetails.setOpened(true);
@@ -73,7 +86,7 @@ public class MainView extends VerticalLayout {
         structureDetails.setOpened(true);
         structureDetails.setWidthFull();
 
-        resultsLayout.add(statusLabel, metadataDetails, structureDetails);
+        resultsLayout.add(headerLayout, metadataDetails, structureDetails);
 
         add(title, inputsLayout, compareButton, resultsLayout);
     }
@@ -104,6 +117,15 @@ public class MainView extends VerticalLayout {
         metadataChangesLayout.removeAll();
         structureChangesLayout.removeAll();
         
+        if (result.isDifferent() || !result.missingOperationIds().isEmpty()) {
+            exportAnchor.setVisible(true);
+            StreamResource resource = new StreamResource("openapi-diff.csv", 
+                () -> diffService.exportToCsv(result));
+            exportAnchor.setHref(resource);
+        } else {
+            exportAnchor.setVisible(false);
+        }
+
         if (!result.missingOperationIds().isEmpty()) {
             String missing = String.join(", ", result.missingOperationIds());
             statusLabel.setText("❌ Le contrat avec l'operation ID " + missing + " n'a pas été trouvé");

@@ -13,12 +13,15 @@ import org.openapitools.openapidiff.core.output.ConsoleRender;
 import org.openapitools.openapidiff.core.output.Render;
 import org.springframework.stereotype.Service;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 public class OpenApiDiffService {
@@ -26,6 +29,70 @@ public class OpenApiDiffService {
     public record MetadataChange(String path, String method, String field, String designFirstValue, String generatedValue) {}
     public record StructureChange(String method, String path, String changeType, List<String> details, boolean isBreaking) {}
     public record DiffResult(String consoleReport, List<MetadataChange> metadataChanges, List<StructureChange> structureChanges, boolean isDifferent, List<String> missingOperationIds) {}
+
+    public InputStream exportToCsv(DiffResult result) {
+        StringBuilder csv = new StringBuilder();
+        // Header
+        csv.append("Category,Path,Method,Element,Contract Design First (Reference),Generated Contract,Is Breaking\n");
+
+        // Missing Operations (those that couldn't be found at all)
+        for (String missingOp : result.missingOperationIds()) {
+            csv.append("Missing Operation,,,")
+                    .append(escapeCsv(missingOp)).append(",")
+                    .append("PRESENT,")
+                    .append("ABSENT,")
+                    .append("TRUE")
+                    .append("\n");
+        }
+
+        // Structure Changes
+        for (StructureChange change : result.structureChanges()) {
+            String designVal = "";
+            String genVal = "";
+            
+            if ("REMOVED".equals(change.changeType())) {
+                designVal = "PRESENT";
+                genVal = "ABSENT";
+            } else if ("NEW".equals(change.changeType())) {
+                designVal = "ABSENT";
+                genVal = "PRESENT";
+            } else {
+                designVal = "MATCH (Structural change)";
+                genVal = String.join("; ", change.details());
+            }
+
+            csv.append("Structure,")
+                    .append(escapeCsv(change.path())).append(",")
+                    .append(escapeCsv(change.method())).append(",")
+                    .append(escapeCsv(change.changeType())).append(",")
+                    .append(escapeCsv(designVal)).append(",")
+                    .append(escapeCsv(genVal)).append(",")
+                    .append(change.isBreaking())
+                    .append("\n");
+        }
+
+        // Metadata Changes
+        for (MetadataChange change : result.metadataChanges()) {
+            csv.append("Metadata,")
+                    .append(escapeCsv(change.path())).append(",")
+                    .append(escapeCsv(change.method())).append(",")
+                    .append(escapeCsv(change.field())).append(",")
+                    .append(escapeCsv(change.designFirstValue())).append(",")
+                    .append(escapeCsv(change.generatedValue())).append(",")
+                    .append("FALSE")
+                    .append("\n");
+        }
+
+        return new ByteArrayInputStream(csv.toString().getBytes(StandardCharsets.UTF_8));
+    }
+
+    private String escapeCsv(String value) {
+        if (value == null) return "";
+        if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
+            return "\"" + value.replace("\"", "\"\"") + "\"";
+        }
+        return value;
+    }
 
     public DiffResult compare(String pmSpecContent, String generatedSpecInput) throws Exception {
         ParseOptions options = new ParseOptions();
